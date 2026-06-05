@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Save, ArrowLeft, Building, Smartphone, HardDrive, AlertCircle } from 'lucide-react';
+import { Save, ArrowLeft, Building, Smartphone, HardDrive, AlertCircle, Search } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/utils/axiosInstance';
 
@@ -10,6 +10,10 @@ export default function CreateTicketPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const [machineSearchQuery, setMachineSearchQuery] = useState('');
+    const [machineOptions, setMachineOptions] = useState<any[]>([]);
+    const [showMachineDropdown, setShowMachineDropdown] = useState(false);
 
     const [formData, setFormData] = useState({
         service_type: 'INSTALLATION',
@@ -22,13 +26,92 @@ export default function CreateTicketPage() {
         merchant_address: '',
         merchant_pincode: '',
         machine_id: '',
+        tid: '',
         complaint_category: '',
-        complaint_description: ''
+        complaint_description: '',
+        mcc_code: '',
+        zone_name: '',
+        sponsor_bank: '',
+        mid: ''
     });
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
         setError(null);
+    };
+
+    // Merchant Search State
+    const [merchantSearchQuery, setMerchantSearchQuery] = useState('');
+    const [merchantOptions, setMerchantOptions] = useState<any[]>([]);
+    const [showMerchantDropdown, setShowMerchantDropdown] = useState(false);
+    const merchantRef = React.useRef<HTMLDivElement>(null);
+
+    // Handle clicking outside to close dropdowns
+    React.useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (merchantRef.current && !merchantRef.current.contains(event.target as Node)) {
+                setShowMerchantDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleMerchantSearch = async (query: string) => {
+        setMerchantSearchQuery(query);
+        try {
+            if (!query) {
+                setMerchantOptions([]);
+                return;
+            }
+            const { data } = await api.get(`/merchants?search=${encodeURIComponent(query)}&limit=10`);
+            const merchants = Array.isArray(data.merchants) ? data.merchants : (Array.isArray(data.data) ? data.data : (data.data?.merchants || []));
+            setMerchantOptions(merchants);
+            setShowMerchantDropdown(true);
+        } catch (err) {
+            console.error('Failed to fetch merchants', err);
+        }
+    };
+
+    const selectMerchant = (m: any) => {
+        setMerchantSearchQuery(m.full_name);
+        setFormData(prev => ({
+            ...prev,
+            merchant_name: m.full_name || '',
+            business_name: m.business_name || '',
+            merchant_mobile: m.mobile || '',
+            merchant_email: m.email || '',
+            merchant_address: m.address || '',
+            merchant_pincode: m.pincode || '',
+            mcc_code: m.mcc_code || '',
+            zone_name: m.zone_name || '',
+            sponsor_bank: m.sponsor_bank || '',
+            mid: m.mid || ''
+        }));
+        setShowMerchantDropdown(false);
+    };
+
+    const handleMachineSearch = async (query: string) => {
+        setMachineSearchQuery(query);
+        setFormData(prev => ({ ...prev, machine_id: query })); // accept custom typed text as ID
+        
+        try {
+            const url = query 
+                ? `/machines?search=${encodeURIComponent(query)}&limit=10`
+                : `/machines?status=DEPLOYED&limit=20`;
+            const { data } = await api.get(url);
+            const machines = Array.isArray(data.machines) ? data.machines : (Array.isArray(data.data) ? data.data : (data.data?.machines || []));
+            setMachineOptions(machines);
+            setShowMachineDropdown(true);
+        } catch (err) {
+            console.error('Failed to fetch machines', err);
+        }
+    };
+
+    const selectMachine = (m: any) => {
+        setMachineSearchQuery(m.serial_number);
+        setFormData(prev => ({ ...prev, machine_id: m.id }));
+        setShowMachineDropdown(false);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -89,6 +172,36 @@ export default function CreateTicketPage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="md:col-span-2 relative" ref={merchantRef}>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">Search Existing Merchant (Optional)</label>
+                            <div className="relative">
+                                <input 
+                                    type="text" 
+                                    placeholder="Search by name, business name, or mobile..." 
+                                    value={merchantSearchQuery} 
+                                    onChange={(e) => handleMerchantSearch(e.target.value)}
+                                    onFocus={() => { if (merchantSearchQuery) setShowMerchantDropdown(true) }}
+                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                                />
+                                <Search className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            </div>
+                            {showMerchantDropdown && merchantOptions.length > 0 && (
+                                <ul className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-auto">
+                                    {merchantOptions.map((m: any) => (
+                                        <li 
+                                            key={m.id} 
+                                            onClick={() => selectMerchant(m)}
+                                            className="px-4 py-3 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                                        >
+                                            <div className="font-semibold text-slate-900">{m.full_name} <span className="text-sm font-normal text-slate-500">({m.mobile})</span></div>
+                                            <div className="text-xs text-slate-500 mt-1 line-clamp-1">{m.address}</div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <p className="text-xs text-slate-500 mt-2">Selecting a merchant will auto-fill the details below.</p>
+                        </div>
+
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-2">Merchant Name *</label>
                             <input 
@@ -131,6 +244,34 @@ export default function CreateTicketPage() {
                                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                         </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">MCC Code</label>
+                            <input 
+                                type="text" name="mcc_code" value={formData.mcc_code} onChange={handleChange} placeholder="Optional"
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">Zone Name</label>
+                            <input 
+                                type="text" name="zone_name" value={formData.zone_name} onChange={handleChange} placeholder="Optional"
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">Sponsor Bank</label>
+                            <input 
+                                type="text" name="sponsor_bank" value={formData.sponsor_bank} onChange={handleChange} placeholder="Optional"
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">MID</label>
+                            <input 
+                                type="text" name="mid" value={formData.mid} onChange={handleChange} placeholder="Optional"
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -144,13 +285,45 @@ export default function CreateTicketPage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="md:col-span-2">
+                        <div className="md:col-span-2 relative">
                             <label className="block text-sm font-medium text-slate-700 mb-2">Machine ID (Optional)</label>
                             <input 
-                                type="text" name="machine_id" placeholder="UUID of the machine" value={formData.machine_id} onChange={handleChange}
+                                type="text" 
+                                placeholder="Search by serial number or enter custom ID..." 
+                                value={machineSearchQuery} 
+                                onChange={(e) => handleMachineSearch(e.target.value)}
+                                onFocus={() => { 
+                                    if (!machineSearchQuery && machineOptions.length === 0) {
+                                        handleMachineSearch('');
+                                    } else {
+                                        setShowMachineDropdown(true); 
+                                    }
+                                }}
+                                onBlur={() => setTimeout(() => setShowMachineDropdown(false), 200)}
                                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
-                            <p className="text-xs text-slate-500 mt-2">In a full application, this would be a searchable dropdown linking to the Machines module.</p>
+                            {showMachineDropdown && machineOptions.length > 0 && (
+                                <ul className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-auto">
+                                    {machineOptions.map((m: any) => (
+                                        <li 
+                                            key={m.id} 
+                                            onClick={() => selectMachine(m)}
+                                            className="px-4 py-3 hover:bg-emerald-50 cursor-pointer border-b border-slate-100 last:border-b-0"
+                                        >
+                                            <div className="font-semibold text-slate-900">{m.serial_number}</div>
+                                            <div className="text-xs text-slate-500 mt-1">ID: {m.id}</div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <p className="text-xs text-slate-500 mt-2">Search suggested. Custom machine IDs are also accepted if the machine is not found.</p>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">Terminal ID (TID)</label>
+                            <input 
+                                type="text" name="tid" value={formData.tid} onChange={handleChange} placeholder="Optional"
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
                         </div>
                     </div>
                 </div>
